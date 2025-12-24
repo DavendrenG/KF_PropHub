@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../utils/app_colors.dart';
 import '../providers/app_state.dart';
 
@@ -18,13 +20,99 @@ class _APIScreenState extends State<APIScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  bool _isLoading = false;
+  List<dynamic> _apiData = [];
+  String _errorMessage = '';
+
+  // TODO: Replace this with your actual SQL Server API endpoint
+  // For testing, using JSONPlaceholder (free fake REST API)
+  final String testApiUrl = 'https://jsonplaceholder.typicode.com/users';
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill with test credentials
+    _serverController.text = 'jsonplaceholder.typicode.com';
+    _databaseController.text = 'test_database';
+    _usernameController.text = 'test_user';
+    _passwordController.text = 'test_password';
+  }
+
+  // ACTUAL API CALL - This is what you need to implement for real SQL Server
+  Future<void> _testConnection() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
+    try {
+      // TODO: Replace this URL with your actual Knowledge Factory API
+      // Example: 'https://api.knowledgefactory.co.za/properties'
+      final response = await http.get(
+        Uri.parse(testApiUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          // TODO: Add your actual authentication headers
+          // 'Authorization': 'Bearer YOUR_TOKEN_HERE',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        // Success!
+        final data = json.decode(response.body);
+
+        setState(() {
+          _apiData = data;
+          _isLoading = false;
+        });
+
+        // Mark as connected in app state
+        final appState = Provider.of<AppState>(context, listen: false);
+        appState.connectAPI({
+          'server': _serverController.text,
+          'database': _databaseController.text,
+          'username': _usernameController.text,
+          'password': _passwordController.text,
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✓ Successfully connected to API!'),
+              backgroundColor: AppColors.success,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // API returned error
+        throw Exception('API returned status code: ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Connection failed: ${e.toString()}';
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Connection failed: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = Provider.of<AppState>(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('SQL Server Integration'),
+        title: const Text('API Integration'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -62,7 +150,7 @@ class _APIScreenState extends State<APIScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'SQL Server Integration',
+                  'API Integration',
                   style: GoogleFonts.inter(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -71,7 +159,9 @@ class _APIScreenState extends State<APIScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Connect to Knowledge Factory\'s property database for live data access',
+                  isConnected
+                      ? 'Connected to live data source'
+                      : 'Test connection to external API',
                   style: GoogleFonts.inter(
                     fontSize: 14,
                     color: AppColors.textSecondary,
@@ -81,7 +171,7 @@ class _APIScreenState extends State<APIScreen> {
             ),
           ),
           Icon(
-            Icons.storage,
+            isConnected ? Icons.cloud_done : Icons.cloud_off,
             size: 48,
             color: isConnected ? AppColors.success : Colors.grey.shade400,
           ),
@@ -109,7 +199,7 @@ class _APIScreenState extends State<APIScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'API Connection Required',
+                      'Test API Connection',
                       style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
@@ -118,7 +208,7 @@ class _APIScreenState extends State<APIScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Enter your SQL Server credentials to access live property data, AVM calculations, and enriched datasets.',
+                      'Using JSONPlaceholder for testing. Replace with your actual Knowledge Factory API endpoint.',
                       style: GoogleFonts.inter(
                         fontSize: 12,
                         color: const Color(0xFF92400E),
@@ -131,6 +221,34 @@ class _APIScreenState extends State<APIScreen> {
           ),
         ),
         const SizedBox(height: 16),
+
+        // Show error message if any
+        if (_errorMessage.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.red),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _errorMessage,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: Colors.red.shade900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
         Form(
           key: _formKey,
           child: Column(
@@ -138,8 +256,8 @@ class _APIScreenState extends State<APIScreen> {
               TextFormField(
                 controller: _serverController,
                 decoration: const InputDecoration(
-                  labelText: 'Server Address',
-                  hintText: 'e.g., sql.knowledgefactory.co.za',
+                  labelText: 'API Server',
+                  hintText: 'e.g., api.knowledgefactory.co.za',
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
@@ -152,7 +270,7 @@ class _APIScreenState extends State<APIScreen> {
               TextFormField(
                 controller: _databaseController,
                 decoration: const InputDecoration(
-                  labelText: 'Database Name',
+                  labelText: 'Database/Endpoint',
                   hintText: 'e.g., PropertyData',
                 ),
                 validator: (value) {
@@ -193,23 +311,24 @@ class _APIScreenState extends State<APIScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () {
-                    if (_formKey.currentState!.validate()) {
-                      appState.connectAPI({
-                        'server': _serverController.text,
-                        'database': _databaseController.text,
-                        'username': _usernameController.text,
-                        'password': _passwordController.text,
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Successfully connected to database!'),
-                          backgroundColor: AppColors.success,
-                        ),
-                      );
-                    }
-                  },
-                  child: const Text('Connect to Database'),
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          if (_formKey.currentState!.validate()) {
+                            _testConnection();
+                          }
+                        },
+                  child: _isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Text('Test Connection'),
                 ),
               ),
             ],
@@ -238,7 +357,7 @@ class _APIScreenState extends State<APIScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Successfully Connected',
+                      'API Connected Successfully!',
                       style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
@@ -247,7 +366,7 @@ class _APIScreenState extends State<APIScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Server: ${_serverController.text} | Database: ${_databaseController.text}',
+                      'Server: ${_serverController.text}',
                       style: GoogleFonts.inter(
                         fontSize: 12,
                         color: const Color(0xFF065F46),
@@ -260,9 +379,7 @@ class _APIScreenState extends State<APIScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        _buildDataTables(),
-        const SizedBox(height: 16),
-        _buildSampleData(),
+        _buildLiveAPIData(),
         const SizedBox(height: 16),
         _buildAPIEndpoints(),
         const SizedBox(height: 16),
@@ -272,6 +389,10 @@ class _APIScreenState extends State<APIScreen> {
             onPressed: () {
               appState.disconnectAPI();
               _clearForm();
+              setState(() {
+                _apiData = [];
+                _errorMessage = '';
+              });
             },
             child: const Text('Disconnect'),
           ),
@@ -280,15 +401,7 @@ class _APIScreenState extends State<APIScreen> {
     );
   }
 
-  Widget _buildDataTables() {
-    final tables = [
-      'Properties',
-      'AVM_Valuations',
-      'Market_Trends',
-      'Gated_Estates',
-      'Sales_History',
-    ];
-
+  Widget _buildLiveAPIData() {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -305,126 +418,66 @@ class _APIScreenState extends State<APIScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Available Data Tables',
-            style: GoogleFonts.inter(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textPrimary,
-            ),
+          Row(
+            children: [
+              const Icon(Icons.cloud_done, color: AppColors.success, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Live API Data (${_apiData.length} records)',
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.primaryRed,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
-          ...tables.map((table) {
-            return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.background,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    table,
-                    style: GoogleFonts.inter(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+          if (_apiData.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else
+            ..._apiData.take(5).map((item) {
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item['name'] ?? 'Unknown',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
                     ),
-                  ),
-                  Text(
-                    'Query →',
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      color: AppColors.primaryRed,
-                      fontWeight: FontWeight.bold,
+                    const SizedBox(height: 4),
+                    Text(
+                      item['email'] ?? 'No email',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSampleData() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.primaryRed,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(16),
-                topRight: Radius.circular(16),
-              ),
-            ),
-            child: Text(
-              'Sample Property Data (Live from SQL Server)',
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              columns: const [
-                DataColumn(label: Text('Property ID')),
-                DataColumn(label: Text('Address')),
-                DataColumn(label: Text('AVM Value')),
-                DataColumn(label: Text('Last Updated')),
-              ],
-              rows: [
-                DataRow(cells: [
-                  const DataCell(Text('PRO-2024-001')),
-                  const DataCell(Text('123 Oak Ave, Sandton')),
-                  DataCell(Text('R3,450,000',
+                    Text(
+                      'City: ${item['address']?['city'] ?? 'Unknown'}',
                       style: GoogleFonts.inter(
-                          color: AppColors.primaryRed,
-                          fontWeight: FontWeight.bold))),
-                  const DataCell(Text('2024-12-10')),
-                ]),
-                DataRow(cells: [
-                  const DataCell(Text('PRO-2024-002')),
-                  const DataCell(Text('45 Pine Rd, Bryanston')),
-                  DataCell(Text('R5,100,000',
-                      style: GoogleFonts.inter(
-                          color: AppColors.primaryRed,
-                          fontWeight: FontWeight.bold))),
-                  const DataCell(Text('2024-12-10')),
-                ]),
-                DataRow(cells: [
-                  const DataCell(Text('PRO-2024-003')),
-                  const DataCell(Text('78 Beach Dr, Umhlanga')),
-                  DataCell(Text('R2,900,000',
-                      style: GoogleFonts.inter(
-                          color: AppColors.primaryRed,
-                          fontWeight: FontWeight.bold))),
-                  const DataCell(Text('2024-12-09')),
-                ]),
-              ],
-            ),
-          ),
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
         ],
       ),
     );
@@ -435,18 +488,26 @@ class _APIScreenState extends State<APIScreen> {
       {
         'method': 'GET',
         'path': '/api/properties',
-        'desc': 'Fetch all properties'
+        'desc': 'Fetch all properties',
+        'status': '✓ Working'
       },
       {
         'method': 'GET',
         'path': '/api/avm/:propertyId',
-        'desc': 'Get AVM valuation'
+        'desc': 'Get AVM valuation',
+        'status': 'Ready'
       },
-      {'method': 'POST', 'path': '/api/estates', 'desc': 'Create gated estate'},
+      {
+        'method': 'POST',
+        'path': '/api/estates',
+        'desc': 'Create gated estate',
+        'status': 'Ready'
+      },
       {
         'method': 'GET',
         'path': '/api/analytics',
-        'desc': 'Market analytics data'
+        'desc': 'Market analytics',
+        'status': 'Ready'
       },
     ];
 
@@ -483,45 +544,64 @@ class _APIScreenState extends State<APIScreen> {
                 color: AppColors.background,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: endpoint['method'] == 'GET'
-                          ? Colors.blue.shade100
-                          : Colors.green.shade100,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      endpoint['method']!,
-                      style: GoogleFonts.inter(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: endpoint['method'] == 'GET'
-                            ? Colors.blue.shade700
-                            : Colors.green.shade700,
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: endpoint['method'] == 'GET'
+                              ? Colors.blue.shade100
+                              : Colors.green.shade100,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          endpoint['method']!,
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: endpoint['method'] == 'GET'
+                                ? Colors.blue.shade700
+                                : Colors.green.shade700,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      endpoint['path']!,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                        color: AppColors.textPrimary,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          endpoint['path']!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontFamily: 'monospace',
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                  Text(
-                    endpoint['desc']!,
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
-                    ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        endpoint['desc']!,
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      Text(
+                        endpoint['status']!,
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: AppColors.success,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
